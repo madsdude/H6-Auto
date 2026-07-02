@@ -1,0 +1,64 @@
+---
+- name: Read-only Cisco discovery test
+  hosts: cisco_ios
+  gather_facts: false
+
+  tasks:
+    - name: Get Cisco version information
+      cisco.ios.ios_command:
+        commands:
+          - show version
+          - show ip interface brief
+      register: cisco_discovery
+
+    - name: Show short Cisco discovery result
+      ansible.builtin.debug:
+        msg:
+          device: "{{ inventory_hostname }}"
+          management_ip: "{{ ansible_host | default('unknown') }}"
+          show_version_first_line: "{{ cisco_discovery.stdout_lines[0][0] | default('no output') }}"
+          interface_lines_seen: "{{ cisco_discovery.stdout_lines[1] | length }}"
+
+- name: Read-only NetBox API test
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    netbox_url: "{{ lookup('ansible.builtin.env', 'NETBOX_URL') | default('', true) }}"
+    netbox_token: "{{ lookup('ansible.builtin.env', 'NETBOX_TOKEN') | default('', true) }}"
+    netbox_validate_certs: "{{ (lookup('ansible.builtin.env', 'NETBOX_VALIDATE_CERTS') | default('false', true)) | bool }}"
+    netbox_api_url: "{{ netbox_url | regex_replace('/+$', '') }}"
+
+  pre_tasks:
+    - name: Validate NETBOX_URL is set
+      ansible.builtin.assert:
+        that:
+          - netbox_url is defined
+          - netbox_url | length > 0
+        fail_msg: "NETBOX_URL is missing in Semaphore Environment."
+
+    - name: Validate NETBOX_TOKEN is set
+      ansible.builtin.assert:
+        that:
+          - netbox_token is defined
+          - netbox_token | length > 0
+        fail_msg: "NETBOX_TOKEN is missing in Semaphore Environment."
+
+  tasks:
+    - name: Read NetBox status endpoint
+      ansible.builtin.uri:
+        url: "{{ netbox_api_url }}/api/status/"
+        method: GET
+        headers:
+          Authorization: "Token {{ netbox_token }}"
+          Accept: "application/json"
+        validate_certs: "{{ netbox_validate_certs }}"
+        return_content: true
+        status_code: 200
+      register: netbox_status
+      no_log: true
+
+    - name: Show NetBox read-only result
+      ansible.builtin.debug:
+        msg: "NetBox API read-only test OK. NetBox is reachable from Semaphore."
