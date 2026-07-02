@@ -32,7 +32,7 @@
           {% else %}Cisco IOS
           {% endif %}
         nb_model: "{{ ansible_net_model | default('Cisco Unknown') }}"
-        nb_model_slug: "{{ ('cisco-' ~ (ansible_net_model | default('unknown'))) | lower | regex_replace('[^a-z0-9]+', '-') | regex_replace('(^-|-$)', '') }}"
+        nb_model_slug: "{{ (ansible_net_model | default('unknown')) | lower | regex_replace('/', '') | regex_replace('[^a-z0-9-]+', '-') | regex_replace('(^-|-$)', '') }}"
         nb_serial: "{{ ansible_net_serialnum | default('') }}"
         nb_version: "{{ ansible_net_version | default('unknown') }}"
         nb_mgmt_ip: "{{ ansible_host }}"
@@ -46,6 +46,7 @@
           role: "{{ nb_role | trim }}"
           platform: "{{ nb_platform | trim }}"
           model: "{{ nb_model }}"
+          model_slug: "{{ nb_model_slug }}"
           serial: "{{ nb_serial }}"
           version: "{{ nb_version }}"
           management_ip: "{{ nb_mgmt_ip }}"
@@ -125,6 +126,7 @@
           sites: "{{ h6_netbox_sites }}"
           devices: "{{ h6_netbox_devices | map(attribute='name') | list }}"
           device_types: "{{ h6_netbox_device_types | map(attribute='model') | list }}"
+          device_type_slugs: "{{ h6_netbox_device_types | map(attribute='model_slug') | list }}"
           physical_logical_interfaces: "{{ h6_netbox_interfaces | length }}"
           management_ips: "{{ h6_netbox_devices | map(attribute='management_ip') | list }}"
 
@@ -203,9 +205,9 @@
         state: present
       loop: "{{ h6_netbox_device_types }}"
       loop_control:
-        label: "{{ item.model }}"
+        label: "{{ item.model }} / {{ item.model_slug }}"
       check_mode: "{{ netbox_dry_run }}"
-      no_log: "{{ netbox_no_log }}"
+      no_log: false
 
     - name: Ensure discovered devices exist
       netbox.netbox.netbox_device:
