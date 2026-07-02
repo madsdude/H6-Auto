@@ -184,13 +184,12 @@
           name: "{{ item.name }}"
           slug: "{{ item.slug }}"
           manufacturer: Cisco
-          napalm_driver: ios
         state: present
       loop:
         - { name: "Cisco IOS", slug: "cisco-ios" }
         - { name: "Cisco IOS XE", slug: "cisco-ios-xe" }
       check_mode: "{{ netbox_dry_run }}"
-      no_log: "{{ netbox_no_log }}"
+      no_log: false
 
     - name: Ensure discovered device types exist
       netbox.netbox.netbox_device_type:
