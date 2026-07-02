@@ -10,6 +10,8 @@
           - min
           - hardware
           - interfaces
+        gather_network_resources:
+          - l3_interfaces
 
     - name: Collect show version first line
       cisco.ios.ios_command:
@@ -50,6 +52,7 @@
           version: "{{ nb_version }}"
           management_ip: "{{ nb_mgmt_ip }}"
           interfaces_found: "{{ ansible_net_interfaces | default({}) | length }}"
+          l3_interfaces_found: "{{ ansible_network_resources.l3_interfaces | default([]) | length }}"
 
 - name: Sync collected Cisco facts into NetBox with API-safe device type handling
   hosts: localhost
@@ -117,6 +120,40 @@
           {{ out }}
       loop: "{{ groups['cisco_ios'] }}"
 
+    - name: Build interface IP list from Cisco L3 facts
+      ansible.builtin.set_fact:
+        h6_netbox_interface_ips: "{{ h6_netbox_interface_ips | default([]) + ip_payloads }}"
+      vars:
+        ip_payloads: >-
+          {%- set out = [] -%}
+          {%- for l3 in (hostvars[item].ansible_network_resources.l3_interfaces | default([])) -%}
+          {%-   for ip in (l3.ipv4 | default([])) -%}
+          {%-     if ip.address is defined and ip.address != 'dhcp' and '/' in ip.address -%}
+          {%-       set _ = out.append({
+                    'device': item,
+                    'interface': l3.name,
+                    'address': ip.address,
+                    'host_ip': ip.address.split('/')[0],
+                    'description': 'Discovered from Cisco interface ' ~ item ~ ' ' ~ l3.name
+                  }) -%}
+          {%-     endif -%}
+          {%-   endfor -%}
+          {%- endfor -%}
+          {{ out }}
+      loop: "{{ groups['cisco_ios'] }}"
+
+    - name: Build primary IPv4 list
+      ansible.builtin.set_fact:
+        h6_netbox_primary_ips: "{{ h6_netbox_primary_ips | default([]) + [ primary_payload ] }}"
+      vars:
+        matching_discovered_ips: "{{ h6_netbox_interface_ips | default([]) | selectattr('device', 'equalto', item.name) | selectattr('host_ip', 'equalto', item.management_ip) | list }}"
+        primary_payload:
+          name: "{{ item.name }}"
+          management_ip: "{{ item.management_ip }}"
+          primary_ip: "{{ matching_discovered_ips[0].address if (matching_discovered_ips | length > 0) else item.management_ip ~ '/32' }}"
+          has_discovered_mgmt_ip: "{{ matching_discovered_ips | length > 0 }}"
+      loop: "{{ h6_netbox_devices }}"
+
     - name: Show sync plan
       ansible.builtin.debug:
         msg:
@@ -125,6 +162,8 @@
           devices: "{{ h6_netbox_devices | map(attribute='name') | list }}"
           device_types: "{{ h6_netbox_device_types }}"
           interfaces: "{{ h6_netbox_interfaces | length }}"
+          discovered_interface_ips: "{{ h6_netbox_interface_ips | length }}"
+          primary_ips: "{{ h6_netbox_primary_ips }}"
 
   tasks:
     - name: Ensure manufacturer Cisco exists
@@ -305,6 +344,24 @@
         label: "{{ item.device }} {{ item.name }}"
       no_log: false
 
+    - name: Ensure discovered interface IP addresses exist and are assigned
+      netbox.netbox.netbox_ip_address:
+        netbox_url: "{{ netbox_api_url }}"
+        netbox_token: "{{ netbox_token }}"
+        validate_certs: "{{ netbox_validate_certs }}"
+        data:
+          address: "{{ item.address }}"
+          status: active
+          description: "{{ item.description }}"
+          assigned_object:
+            device: "{{ item.device }}"
+            name: "{{ item.interface }}"
+        state: present
+      loop: "{{ h6_netbox_interface_ips | default([]) }}"
+      loop_control:
+        label: "{{ item.device }} {{ item.interface }} {{ item.address }}"
+      no_log: false
+
     - name: Ensure management interface exists
       netbox.netbox.netbox_device_interface:
         netbox_url: "{{ netbox_api_url }}"
@@ -316,14 +373,14 @@
           type: other
           enabled: true
           mgmt_only: true
-          description: "Automation reachability IP from Semaphore inventory"
+          description: "Automation reachability IP from Semaphore inventory. Used only when inventory IP is not discovered on a real interface."
         state: present
       loop: "{{ h6_netbox_devices }}"
       loop_control:
         label: "{{ item.name }} mgmt-ansible"
       no_log: "{{ netbox_no_log }}"
 
-    - name: Ensure management IP addresses exist and are assigned
+    - name: Ensure fallback management IP addresses exist and are assigned
       netbox.netbox.netbox_ip_address:
         netbox_url: "{{ netbox_api_url }}"
         netbox_token: "{{ netbox_token }}"
@@ -331,14 +388,15 @@
         data:
           address: "{{ item.management_ip }}/32"
           status: active
-          description: "Ansible/Semaphore management address for {{ item.name }}"
+          description: "Ansible/Semaphore fallback management address for {{ item.name }}"
           assigned_object:
             device: "{{ item.name }}"
             name: mgmt-ansible
         state: present
-      loop: "{{ h6_netbox_devices }}"
+      loop: "{{ h6_netbox_primary_ips }}"
       loop_control:
-        label: "{{ item.name }} {{ item.management_ip }}/32"
+        label: "{{ item.name }} fallback {{ item.management_ip }}/32"
+      when: not (item.has_discovered_mgmt_ip | bool)
       no_log: "{{ netbox_no_log }}"
 
     - name: Set primary IPv4 on devices
@@ -348,13 +406,13 @@
         validate_certs: "{{ netbox_validate_certs }}"
         data:
           name: "{{ item.name }}"
-          primary_ip4: "{{ item.management_ip }}/32"
+          primary_ip4: "{{ item.primary_ip }}"
         state: present
-      loop: "{{ h6_netbox_devices }}"
+      loop: "{{ h6_netbox_primary_ips }}"
       loop_control:
-        label: "{{ item.name }} primary_ip4={{ item.management_ip }}/32"
+        label: "{{ item.name }} primary_ip4={{ item.primary_ip }}"
       no_log: "{{ netbox_no_log }}"
 
     - name: NetBox sync complete
       ansible.builtin.debug:
-        msg: "NetBox API-safe sync complete. Devices={{ h6_netbox_devices | length }}, interfaces={{ h6_netbox_interfaces | length }}, mgmt_ips={{ h6_netbox_devices | length }}"
+        msg: "NetBox API-safe sync complete. Devices={{ h6_netbox_devices | length }}, interfaces={{ h6_netbox_interfaces | length }}, interface_ips={{ h6_netbox_interface_ips | default([]) | length }}, primary_ips={{ h6_netbox_primary_ips | length }}"
