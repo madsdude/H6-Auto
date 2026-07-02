@@ -1,0 +1,41 @@
+---
+- name: Test NetBox API access from Semaphore
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars_files:
+    - ../data/netbox_h6_lab.yml
+
+  pre_tasks:
+    - name: Validate NETBOX_URL is set
+      ansible.builtin.assert:
+        that:
+          - netbox_url is defined
+          - netbox_url | length > 0
+        fail_msg: "NETBOX_URL is missing in Semaphore Environment. Example: http://10.1.21.20:8000"
+
+    - name: Validate NETBOX_TOKEN is set
+      ansible.builtin.assert:
+        that:
+          - netbox_token is defined
+          - netbox_token | length > 0
+        fail_msg: "NETBOX_TOKEN is missing in Semaphore Environment. Create an API token in NetBox and add it to Semaphore."
+
+  tasks:
+    - name: Query NetBox sites API
+      ansible.builtin.uri:
+        url: "{{ netbox_api_url }}/api/dcim/sites/?limit=1"
+        method: GET
+        headers:
+          Authorization: "Token {{ netbox_token }}"
+          Accept: "application/json"
+        validate_certs: "{{ netbox_validate_certs }}"
+        return_content: true
+        status_code: 200
+      register: netbox_sites_api
+      no_log: true
+
+    - name: Show NetBox API result
+      ansible.builtin.debug:
+        msg: "NetBox API OK. Existing sites found: {{ netbox_sites_api.json.count }}"
