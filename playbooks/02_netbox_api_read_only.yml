@@ -5,9 +5,9 @@
   gather_facts: false
 
   vars:
-    netbox_url: "{{ lookup('ansible.builtin.env', 'NETBOX_URL') | default('', true) }}"
-    netbox_token: "{{ lookup('ansible.builtin.env', 'NETBOX_TOKEN') | default('', true) }}"
-    netbox_validate_certs: "{{ (lookup('ansible.builtin.env', 'NETBOX_VALIDATE_CERTS') | default('false', true)) | bool }}"
+    netbox_url: "{{ NETBOX_URL | default(lookup('ansible.builtin.env', 'NETBOX_URL') | default('', true), true) }}"
+    netbox_token: "{{ NETBOX_TOKEN | default(lookup('ansible.builtin.env', 'NETBOX_TOKEN') | default('', true), true) }}"
+    netbox_validate_certs: "{{ (NETBOX_VALIDATE_CERTS | default(lookup('ansible.builtin.env', 'NETBOX_VALIDATE_CERTS') | default('false', true), true)) | bool }}"
     netbox_api_url: "{{ netbox_url | regex_replace('/+$', '') }}"
 
   pre_tasks:
@@ -16,14 +16,14 @@
         that:
           - netbox_url is defined
           - netbox_url | length > 0
-        fail_msg: "NETBOX_URL is missing in Semaphore Environment."
+        fail_msg: "NETBOX_URL is missing. Add it as Extra variable or Environment variable in Semaphore."
 
     - name: Validate NETBOX_TOKEN is set
       ansible.builtin.assert:
         that:
           - netbox_token is defined
           - netbox_token | length > 0
-        fail_msg: "NETBOX_TOKEN is missing in Semaphore Environment."
+        fail_msg: "NETBOX_TOKEN is missing. Add it as Extra variable or Environment variable in Semaphore."
 
   tasks:
     - name: Read NetBox status endpoint
