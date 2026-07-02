@@ -1,0 +1,49 @@
+---
+netbox_sites:
+  - name: AAB
+    slug: aab
+    status: active
+    description: H6 lab core site
+    time_zone: Europe/Copenhagen
+
+netbox_manufacturers:
+  - name: Cisco
+    slug: cisco
+
+netbox_device_roles:
+  - name: Core Router
+    slug: core-router
+    color: f44336
+  - name: Core Switch
+    slug: core-switch
+    color: 2196f3
+
+netbox_platforms:
+  - name: Cisco IOS
+    slug: cisco-ios
+    manufacturer: Cisco
+    napalm_driver: ios
+
+netbox_device_types:
+  - manufacturer: Cisco
+    model: Cisco ISR 1921
+    slug: cisco-isr-1921
+  - manufacturer: Cisco
+    model: Cisco Catalyst Lab Switch
+    slug: cisco-catalyst-lab-switch
+
+netbox_devices:
+  - name: AAB-CORE-R1
+    site: AAB
+    device_type: Cisco ISR 1921
+    device_role: Core Router
+    platform: Cisco IOS
+    status: active
+    comments: Created and maintained by Ansible/Semaphore
+  - name: AAB-CORE-SW10
+    site: AAB
+    device_type: Cisco Catalyst Lab Switch
+    device_role: Core Switch
+    platform: Cisco IOS
+    status: active
+    comments: Created and maintained by Ansible/Semaphore
