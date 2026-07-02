@@ -1,0 +1,20 @@
+---
+- name: Read-only Cisco discovery only
+  hosts: cisco_ios
+  gather_facts: false
+
+  tasks:
+    - name: Get Cisco version and interface summary
+      cisco.ios.ios_command:
+        commands:
+          - show version
+          - show ip interface brief
+      register: cisco_discovery
+
+    - name: Show short Cisco discovery result
+      ansible.builtin.debug:
+        msg:
+          device: "{{ inventory_hostname }}"
+          management_ip: "{{ ansible_host | default('unknown') }}"
+          show_version_first_line: "{{ cisco_discovery.stdout_lines[0][0] | default('no output') }}"
+          interface_lines_seen: "{{ cisco_discovery.stdout_lines[1] | length }}"
