@@ -1,0 +1,25 @@
+---
+- name: Test Cisco SSH connection
+  hosts: cisco_ios
+  gather_facts: false
+
+  tasks:
+    - name: Run show version
+      cisco.ios.ios_command:
+        commands:
+          - show version
+      register: version_output
+
+    - name: Print show version
+      debug:
+        var: version_output.stdout_lines
+
+    - name: Run show ip interface brief
+      cisco.ios.ios_command:
+        commands:
+          - show ip interface brief
+      register: ip_int_brief
+
+    - name: Print interfaces
+      debug:
+        var: ip_int_brief.stdout_lines
