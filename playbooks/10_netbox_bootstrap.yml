@@ -1,0 +1,73 @@
+---
+- name: Bootstrap NetBox base objects for H6 lab
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars_files:
+    - ../data/netbox_h6_lab.yml
+
+  pre_tasks:
+    - name: Validate NetBox API variables
+      ansible.builtin.assert:
+        that:
+          - netbox_api_url is defined
+          - netbox_api_url | length > 0
+          - netbox_token is defined
+          - netbox_token | length > 0
+        fail_msg: "NETBOX_URL and NETBOX_TOKEN must be configured in Semaphore Environment."
+
+  tasks:
+    - name: Create/update NetBox sites
+      netbox.netbox.netbox_site:
+        netbox_url: "{{ netbox_api_url }}"
+        netbox_token: "{{ netbox_token }}"
+        validate_certs: "{{ netbox_validate_certs }}"
+        data: "{{ item }}"
+        state: present
+      loop: "{{ netbox_sites }}"
+      no_log: true
+
+    - name: Create/update manufacturers
+      netbox.netbox.netbox_manufacturer:
+        netbox_url: "{{ netbox_api_url }}"
+        netbox_token: "{{ netbox_token }}"
+        validate_certs: "{{ netbox_validate_certs }}"
+        data: "{{ item }}"
+        state: present
+      loop: "{{ netbox_manufacturers }}"
+      no_log: true
+
+    - name: Create/update device roles
+      netbox.netbox.netbox_device_role:
+        netbox_url: "{{ netbox_api_url }}"
+        netbox_token: "{{ netbox_token }}"
+        validate_certs: "{{ netbox_validate_certs }}"
+        data: "{{ item }}"
+        state: present
+      loop: "{{ netbox_device_roles }}"
+      no_log: true
+
+    - name: Create/update platforms
+      netbox.netbox.netbox_platform:
+        netbox_url: "{{ netbox_api_url }}"
+        netbox_token: "{{ netbox_token }}"
+        validate_certs: "{{ netbox_validate_certs }}"
+        data: "{{ item }}"
+        state: present
+      loop: "{{ netbox_platforms }}"
+      no_log: true
+
+    - name: Create/update device types
+      netbox.netbox.netbox_device_type:
+        netbox_url: "{{ netbox_api_url }}"
+        netbox_token: "{{ netbox_token }}"
+        validate_certs: "{{ netbox_validate_certs }}"
+        data: "{{ item }}"
+        state: present
+      loop: "{{ netbox_device_types }}"
+      no_log: true
+
+    - name: Bootstrap complete
+      ansible.builtin.debug:
+        msg: "NetBox bootstrap complete: sites, manufacturers, roles, platforms and device types are present."
