@@ -91,6 +91,11 @@
           show_version_first_line: "{{ hostvars[item].nb_show_version_first_line }}"
       loop: "{{ groups['cisco_ios'] }}"
 
+    - name: Build unique discovered device type list
+      ansible.builtin.set_fact:
+        h6_netbox_device_types: "{{ h6_netbox_device_types | default([]) + [ {'model': item.model, 'model_slug': item.model_slug} ] }}"
+      loop: "{{ h6_netbox_devices | unique(attribute='model') | list }}"
+
     - name: Build site list
       ansible.builtin.set_fact:
         h6_netbox_sites: "{{ h6_netbox_devices | map(attribute='site') | unique | list }}"
@@ -119,6 +124,7 @@
           dry_run: "{{ netbox_dry_run }}"
           sites: "{{ h6_netbox_sites }}"
           devices: "{{ h6_netbox_devices | map(attribute='name') | list }}"
+          device_types: "{{ h6_netbox_device_types | map(attribute='model') | list }}"
           physical_logical_interfaces: "{{ h6_netbox_interfaces | length }}"
           management_ips: "{{ h6_netbox_devices | map(attribute='management_ip') | list }}"
 
@@ -196,7 +202,7 @@
           model: "{{ item.model }}"
           slug: "{{ item.model_slug }}"
         state: present
-      loop: "{{ h6_netbox_devices }}"
+      loop: "{{ h6_netbox_device_types }}"
       loop_control:
         label: "{{ item.model }}"
       check_mode: "{{ netbox_dry_run }}"
@@ -222,18 +228,12 @@
             Serial: {{ item.serial }}
             Software version: {{ item.version }}
             Show version: {{ item.show_version_first_line }}
-          local_context_data:
-            ansible_host: "{{ item.management_ip }}"
-            discovered_model: "{{ item.model }}"
-            discovered_serial: "{{ item.serial }}"
-            discovered_version: "{{ item.version }}"
-            discovered_platform: "{{ item.platform }}"
         state: present
       loop: "{{ h6_netbox_devices }}"
       loop_control:
         label: "{{ item.name }}"
       check_mode: "{{ netbox_dry_run }}"
-      no_log: "{{ netbox_no_log }}"
+      no_log: false
 
     - name: Ensure discovered interfaces exist in NetBox
       netbox.netbox.netbox_device_interface:
