@@ -1,0 +1,26 @@
+---
+- name: Ensure NetBox base objects exist
+  ansible.builtin.import_playbook: 10_netbox_bootstrap.yml
+
+- name: Create/update network devices in NetBox
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars_files:
+    - ../data/netbox_h6_lab.yml
+
+  tasks:
+    - name: Create/update devices
+      netbox.netbox.netbox_device:
+        netbox_url: "{{ netbox_api_url }}"
+        netbox_token: "{{ netbox_token }}"
+        validate_certs: "{{ netbox_validate_certs }}"
+        data: "{{ item }}"
+        state: present
+      loop: "{{ netbox_devices }}"
+      no_log: true
+
+    - name: Device sync complete
+      ansible.builtin.debug:
+        msg: "NetBox device sync complete. Devices handled: {{ netbox_devices | map(attribute='name') | list }}"
