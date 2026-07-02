@@ -25,19 +25,21 @@
           - netbox_token | length > 0
         fail_msg: "NETBOX_TOKEN is missing. Add it as Extra variable or Environment variable in Semaphore."
 
+    - name: Show sanitized NetBox target
+      ansible.builtin.debug:
+        msg: "Testing NetBox URL: {{ netbox_api_url }} with validate_certs={{ netbox_validate_certs }}"
+
   tasks:
-    - name: Read NetBox status endpoint
+    - name: Read NetBox status endpoint without auth header
       ansible.builtin.uri:
         url: "{{ netbox_api_url }}/api/status/"
         method: GET
         headers:
-          Authorization: "Token {{ netbox_token }}"
           Accept: "application/json"
         validate_certs: "{{ netbox_validate_certs }}"
         return_content: true
         status_code: 200
       register: netbox_status
-      no_log: true
 
     - name: Show NetBox read-only result
       ansible.builtin.debug:
