@@ -110,7 +110,8 @@
                   'device': item,
                   'name': iface_name,
                   'description': iface_data.description | default(''),
-                  'enabled': (iface_data.operstatus | default('') != 'administratively down')
+                  'enabled': (iface_data.operstatus | default('') != 'administratively down'),
+                  'type': 'other'
                 }) -%}
           {%- endfor -%}
           {{ out }}
@@ -295,13 +296,14 @@
         data:
           device: "{{ item.device }}"
           name: "{{ item.name }}"
+          type: "{{ item.type }}"
           enabled: "{{ item.enabled }}"
           description: "{{ item.description }}"
         state: present
       loop: "{{ h6_netbox_interfaces }}"
       loop_control:
         label: "{{ item.device }} {{ item.name }}"
-      no_log: "{{ netbox_no_log }}"
+      no_log: false
 
     - name: Ensure management interface exists
       netbox.netbox.netbox_device_interface:
@@ -311,6 +313,7 @@
         data:
           device: "{{ item.name }}"
           name: mgmt-ansible
+          type: other
           enabled: true
           mgmt_only: true
           description: "Automation reachability IP from Semaphore inventory"
