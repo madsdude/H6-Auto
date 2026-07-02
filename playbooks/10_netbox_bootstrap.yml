@@ -4,6 +4,12 @@
   connection: local
   gather_facts: false
 
+  vars:
+    netbox_url: "{{ lookup('ansible.builtin.env', 'NETBOX_URL') | default('', true) }}"
+    netbox_token: "{{ lookup('ansible.builtin.env', 'NETBOX_TOKEN') | default('', true) }}"
+    netbox_validate_certs: "{{ (lookup('ansible.builtin.env', 'NETBOX_VALIDATE_CERTS') | default('false', true)) | bool }}"
+    netbox_api_url: "{{ netbox_url | regex_replace('/+$', '') }}"
+
   vars_files:
     - ../data/netbox_h6_lab.yml
 
