@@ -30,17 +30,19 @@
         msg: "Testing NetBox URL: {{ netbox_api_url }} with validate_certs={{ netbox_validate_certs }}"
 
   tasks:
-    - name: Read NetBox status endpoint without auth header
+    - name: Read NetBox status endpoint with token auth
       ansible.builtin.uri:
         url: "{{ netbox_api_url }}/api/status/"
         method: GET
         headers:
+          Authorization: "Token {{ netbox_token }}"
           Accept: "application/json"
         validate_certs: "{{ netbox_validate_certs }}"
         return_content: true
         status_code: 200
       register: netbox_status
+      no_log: true
 
     - name: Show NetBox read-only result
       ansible.builtin.debug:
-        msg: "NetBox API read-only test OK. NetBox is reachable from Semaphore."
+        msg: "NetBox API read-only test OK. NetBox is reachable and token authentication works."
