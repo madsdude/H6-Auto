@@ -1,0 +1,5 @@
+---
+netbox_url: "{{ lookup('ansible.builtin.env', 'NETBOX_URL') }}"
+netbox_token: "{{ lookup('ansible.builtin.env', 'NETBOX_TOKEN') }}"
+netbox_validate_certs: "{{ (lookup('ansible.builtin.env', 'NETBOX_VALIDATE_CERTS') | default('false', true)) | bool }}"
+netbox_api_url: "{{ netbox_url | regex_replace('/+$', '') }}"
