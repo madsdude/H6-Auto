@@ -3,6 +3,9 @@
   hosts: cisco_ios
   gather_facts: false
 
+  vars:
+    netbox_store_full_config: "{{ (NETBOX_STORE_FULL_CONFIG | default(lookup('ansible.builtin.env', 'NETBOX_STORE_FULL_CONFIG') | default('false', true), true)) | bool }}"
+
   tasks:
     - name: Collect Cisco IOS facts
       cisco.ios.ios_facts:
@@ -18,6 +21,13 @@
         commands:
           - show version
       register: show_version_result
+
+    - name: Collect running config
+      cisco.ios.ios_command:
+        commands:
+          - show running-config
+      register: running_config_result
+      no_log: true
 
     - name: Build NetBox discovery facts per device
       ansible.builtin.set_fact:
@@ -38,6 +48,8 @@
         nb_version: "{{ ansible_net_version | default('unknown') }}"
         nb_mgmt_ip: "{{ ansible_host }}"
         nb_show_version_first_line: "{{ show_version_result.stdout_lines[0][0] | default('unknown') }}"
+        nb_running_config_raw: "{{ running_config_result.stdout[0] | default('') }}"
+        nb_running_config: "{{ (running_config_result.stdout[0] | default('')) if (netbox_store_full_config | bool) else ((running_config_result.stdout[0] | default('')) | regex_replace('(?im)^.*(password|secret|snmp-server community|pre-shared-key|tacacs-server key|radius-server key|key-string|shared-secret).*$','! REDACTED - sensitive config line')) }}"
 
     - name: Show collected device facts
       ansible.builtin.debug:
@@ -53,6 +65,8 @@
           management_ip: "{{ nb_mgmt_ip }}"
           interfaces_found: "{{ ansible_net_interfaces | default({}) | length }}"
           l3_interfaces_found: "{{ ansible_network_resources.l3_interfaces | default([]) | length }}"
+          running_config_chars: "{{ nb_running_config | length }}"
+          store_full_running_config: "{{ netbox_store_full_config }}"
 
 - name: Sync collected Cisco facts into NetBox with API-safe device type handling
   hosts: localhost
@@ -65,6 +79,7 @@
     netbox_validate_certs: "{{ (NETBOX_VALIDATE_CERTS | default(lookup('ansible.builtin.env', 'NETBOX_VALIDATE_CERTS') | default('false', true), true)) | bool }}"
     netbox_api_url: "{{ netbox_url | regex_replace('/+$', '') }}"
     netbox_no_log: "{{ not ((NETBOX_DEBUG | default(false, true)) | bool) }}"
+    netbox_store_full_config: "{{ (NETBOX_STORE_FULL_CONFIG | default(lookup('ansible.builtin.env', 'NETBOX_STORE_FULL_CONFIG') | default('false', true), true)) | bool }}"
 
   pre_tasks:
     - name: Validate NetBox API variables
@@ -75,6 +90,10 @@
           - netbox_token is defined
           - netbox_token | length > 0
         fail_msg: "NETBOX_URL and NETBOX_TOKEN must be configured in Semaphore."
+
+    - name: Set sync timestamp
+      ansible.builtin.set_fact:
+        netbox_sync_timestamp: "{{ lookup('ansible.builtin.pipe', 'date -Iseconds') }}"
 
     - name: Build normalized device list from Cisco hostvars
       ansible.builtin.set_fact:
@@ -91,6 +110,7 @@
           version: "{{ hostvars[item].nb_version }}"
           management_ip: "{{ hostvars[item].nb_mgmt_ip }}"
           show_version_first_line: "{{ hostvars[item].nb_show_version_first_line }}"
+          running_config: "{{ hostvars[item].nb_running_config | default('') }}"
       loop: "{{ groups['cisco_ios'] }}"
 
     - name: Build unique device type list
@@ -164,6 +184,8 @@
           interfaces: "{{ h6_netbox_interfaces | length }}"
           discovered_interface_ips: "{{ h6_netbox_interface_ips | length }}"
           primary_ips: "{{ h6_netbox_primary_ips }}"
+          running_configs: "{{ h6_netbox_devices | map(attribute='name') | list | length }} devices"
+          store_full_running_config: "{{ netbox_store_full_config }}"
 
   tasks:
     - name: Ensure manufacturer Cisco exists
@@ -327,6 +349,79 @@
         label: "{{ item.name }}"
       no_log: false
 
+    - name: Ensure running_config custom field exists on devices
+      ansible.builtin.uri:
+        url: "{{ netbox_api_url }}/api/extras/custom-fields/"
+        method: POST
+        headers:
+          Authorization: "Token {{ netbox_token }}"
+          Accept: "application/json"
+          Content-Type: "application/json"
+        validate_certs: "{{ netbox_validate_certs }}"
+        body_format: json
+        body:
+          name: running_config
+          label: Running Config
+          type: longtext
+          object_types:
+            - dcim.device
+          required: false
+          description: "Latest Cisco show running-config collected by Ansible/Semaphore. Sensitive lines are redacted unless NETBOX_STORE_FULL_CONFIG=true."
+          weight: 1000
+        return_content: true
+        status_code:
+          - 201
+          - 400
+      register: running_config_cf_create
+      failed_when: >-
+        running_config_cf_create.status == 400 and
+        ('already exists' not in (running_config_cf_create.content | lower)) and
+        ('custom field with this name' not in (running_config_cf_create.content | lower))
+      no_log: "{{ netbox_no_log }}"
+
+    - name: Lookup NetBox device IDs for running config update
+      ansible.builtin.uri:
+        url: "{{ netbox_api_url }}/api/dcim/devices/?name={{ item.name | urlencode }}"
+        method: GET
+        headers:
+          Authorization: "Token {{ netbox_token }}"
+          Accept: "application/json"
+        validate_certs: "{{ netbox_validate_certs }}"
+        return_content: true
+        status_code: 200
+      loop: "{{ h6_netbox_devices }}"
+      loop_control:
+        label: "{{ item.name }}"
+      register: device_lookup_for_config
+      no_log: "{{ netbox_no_log }}"
+
+    - name: Store running config in NetBox custom field on device
+      ansible.builtin.uri:
+        url: "{{ netbox_api_url }}/api/dcim/devices/{{ item.json.results[0].id }}/"
+        method: PATCH
+        headers:
+          Authorization: "Token {{ netbox_token }}"
+          Accept: "application/json"
+          Content-Type: "application/json"
+        validate_certs: "{{ netbox_validate_certs }}"
+        body_format: json
+        body:
+          custom_fields:
+            running_config: |-
+              ! Synced by Ansible/Semaphore at {{ netbox_sync_timestamp }}
+              ! Device: {{ item.item.name }}
+              ! Full running config stored: {{ netbox_store_full_config }}
+              {% if not netbox_store_full_config %}! Sensitive lines redacted. Set NETBOX_STORE_FULL_CONFIG=true to store raw config.
+              {% endif %}
+              {{ item.item.running_config }}
+        return_content: true
+        status_code: 200
+      loop: "{{ device_lookup_for_config.results }}"
+      loop_control:
+        label: "{{ item.item.name }} running_config"
+      when: item.json.count | int > 0
+      no_log: true
+
     - name: Ensure discovered interfaces exist in NetBox
       netbox.netbox.netbox_device_interface:
         netbox_url: "{{ netbox_api_url }}"
@@ -415,4 +510,4 @@
 
     - name: NetBox sync complete
       ansible.builtin.debug:
-        msg: "NetBox API-safe sync complete. Devices={{ h6_netbox_devices | length }}, interfaces={{ h6_netbox_interfaces | length }}, interface_ips={{ h6_netbox_interface_ips | default([]) | length }}, primary_ips={{ h6_netbox_primary_ips | length }}"
+        msg: "NetBox API-safe sync complete. Devices={{ h6_netbox_devices | length }}, interfaces={{ h6_netbox_interfaces | length }}, interface_ips={{ h6_netbox_interface_ips | default([]) | length }}, primary_ips={{ h6_netbox_primary_ips | length }}, running_configs={{ h6_netbox_devices | length }}"
